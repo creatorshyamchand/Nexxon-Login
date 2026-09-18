@@ -1,0 +1,383 @@
+#!/usr/bin/env python3
+"""
+Nexxon Hacker - Secure Login System for Termux
+Full installation + authentication system
+"""
+
+import os
+import sys
+import json
+import base64
+import hashlib
+import getpass
+import subprocess
+import time
+import random
+import shutil
+from pathlib import Path
+
+# ============ CONFIG ============
+HOME = Path.home()
+INSTALL_DIR = HOME / ".nexxon_system"
+VAULT_FILE = INSTALL_DIR / "vault.enc"
+CONFIG_FILE = INSTALL_DIR / "config.json"
+SOUND_DIR = INSTALL_DIR / "sound"
+BASHRC = HOME / ".bashrc"
+ZSH = HOME / ".zshrc"
+
+# ============ KALI LINUX ASCII LOGO ============
+KALI_LOGO = r"""
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠠⡀⠀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠱⣄⠘⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⣀⠀⠀⢢⣤⣀⣦⣄⡀⠙⣶⡘⢷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⣀⣀⣨⣿⣿⣿⣿⣿⣿⣿⣿⣷⣿⣿⣯⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⢀⣽⣿⣿⣿⣿⠟⠛⠛⠛⠛⠻⢿⣿⣿⣿⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠘⣻⣿⣿⡿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⢿⣿⣿⣿⣿⢿⣷⡀⠀⠀⠀⠀⠀⠀
+⠀⠀⣴⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⣿⣿⣿⣷⣽⣷⣄⠀⠀⠀⠀⠀
+⠀⠀⠀⣾⣿⣿⣇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠛⢿⣿⣿⣿⣯⠁⠀⠀⠀⠀
+⠀⠀⠐⠛⢿⣿⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠻⣿⣿⣷⣄⡀⠀⠀
+⠀⠀⠀⠀⠘⠟⠿⣿⣿⣦⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢿⣿⣿⠇⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡼⠟⠋⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⢿⣷⣶⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⢿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠲⣶⣶⣦⠀⢀⣴⣶⣶⠖⠀⠀⠒⢶⣶⣶⣶⠀⠀⠐⢶⣶⣶⣦⠀⠀⠀⠒⢶⣶⣶⡆
+⠀⣿⣿⣿⣠⣾⣿⡿⠋⠀⠀⠀⢠⣿⣿⣿⣿⣧⠀⠀⠠⣿⣿⣿⠀⠀⠀⠀⢸⣿⣿⡇
+⠀⣿⣿⣿⣿⣿⣿⡀⠀⠀⠀⠀⣾⣿⣿⠹⣿⣿⣇⠀⠐⣿⣿⣿⠀⠀⠀⠀⢸⣿⣿⡇
+⠀⣿⣿⣿⠟⣿⣿⣿⣄⠀⠀⣼⣿⣿⣿⣶⣿⣿⣿⣆⢈⣿⣿⣿⣤⣤⣄⣀⣸⣿⣿⡇
+⠀⣿⣿⡿⠀⠈⢿⣿⣿⡆⢸⣿⣿⠏⠉⠉⠉⢿⣿⡿⡄⣿⣿⣿⣿⢿⣿⡿⢸⣿⣿⡇
+"""
+
+# ============ COLORS ============
+class C:
+    R = '\033[0;31m'    # red
+    G = '\033[0;32m'    # green
+    Y = '\033[0;33m'    # yellow
+    B = '\033[0;34m'    # blue
+    M = '\033[0;35m'    # magenta
+    CY = '\033[0;36m'   # cyan
+    W = '\033[0;37m'    # white
+    BR = '\033[1;31m'   # bold red
+    BG = '\033[1;32m'   # bold green
+    BY = '\033[1;33m'   # bold yellow
+    BB = '\033[1;34m'   # bold blue
+    BM = '\033[1;35m'   # bold magenta
+    BC = '\033[1;36m'   # bold cyan
+    BW = '\033[1;37m'   # bold white
+    X = '\033[0m'       # reset
+
+# ============ BINARY RAIN ANIMATION ============
+def binary_rain(duration=3, colors=None):
+    """Matrix-style binary rain animation"""
+    if colors is None:
+        colors = [C.G, C.BR, C.BY, C.BB, C.BC, C.BM]
+    
+    try:
+        cols = shutil.get_terminal_size().columns
+    except:
+        cols = 80
+    
+    frames = int(duration * 15)
+    for _ in range(frames):
+        line = ""
+        for _ in range(cols):
+            if random.random() < 0.35:
+                line += random.choice(colors) + random.choice("01") + C.X
+            else:
+                line += " "
+        print(line)
+        time.sleep(0.05)
+
+def clear():
+    os.system('clear' if os.name != 'nt' else 'cls')
+
+# ============ SOUND PLAYER ============
+def play_sound(sound_name):
+    """Play a sound file from the sound directory"""
+    sound_path = SOUND_DIR / sound_name
+    if not sound_path.exists():
+        return
+    try:
+        subprocess.Popen(
+            ["mpv", "--no-video", "--really-quiet", str(sound_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except FileNotFoundError:
+        try:
+            subprocess.Popen(
+                ["termux-media-player", "play", str(sound_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except:
+            pass
+
+def play_random_welcome():
+    """Play a random welcome sound"""
+    sound = f"welcome{random.randint(1,5)}.mp3"
+    play_sound(sound)
+
+# ============ ENCRYPTION ============
+def hash_password(password, salt):
+    """Hash password with SHA-256 + salt"""
+    return hashlib.sha256((salt + password).encode()).hexdigest()
+
+def generate_salt():
+    """Generate random salt"""
+    return base64.b64encode(os.urandom(32)).decode()
+
+def encrypt_data(data, password, salt):
+    """Simple XOR encryption using password-derived key"""
+    key = hashlib.sha256((password + salt).encode()).digest()
+    data_bytes = json.dumps(data).encode()
+    encrypted = bytes(b ^ key[i % len(key)] for i, b in enumerate(data_bytes))
+    return base64.b64encode(encrypted).decode()
+
+def decrypt_data(encrypted_str, password, salt):
+    """Decrypt XOR-encrypted data"""
+    try:
+        key = hashlib.sha256((password + salt).encode()).digest()
+        encrypted = base64.b64decode(encrypted_str.encode())
+        decrypted = bytes(b ^ key[i % len(key)] for i, b in enumerate(encrypted))
+        return json.loads(decrypted.decode())
+    except:
+        return None
+
+# ============ INSTALLATION ============
+def print_install_banner():
+    clear()
+    print(C.BC + KALI_LOGO + C.X)
+    print(C.BG + "═" * 60 + C.X)
+    print(C.BY + "      🔐 NEXXON HACKER - SECURE LOGIN INSTALLER 🔐" + C.X)
+    print(C.BG + "═" * 60 + C.X)
+    print()
+
+def install():
+    """Main installation flow"""
+    print_install_banner()
+    
+    print(C.BC + "[*] Initializing secure installation..." + C.X)
+    time.sleep(0.8)
+    binary_rain(duration=2)
+    
+    # Create install directory
+    INSTALL_DIR.mkdir(exist_ok=True)
+    SOUND_DIR.mkdir(exist_ok=True)
+    print(C.BG + "[✓] Created secure vault directory" + C.X)
+    time.sleep(0.4)
+    
+    # Ask username
+    print()
+    print(C.BY + "┌─[SETUP: STEP 1/3]" + C.X)
+    username = input(C.BC + "└──╼ " + C.BW + "Enter Username: " + C.X).strip()
+    while not username:
+        username = input(C.BR + "✗ Username cannot be empty!\n" + C.BC + "└──╼ " + C.BW + "Enter Username: " + C.X).strip()
+    
+    # Ask password
+    print()
+    print(C.BY + "┌─[SETUP: STEP 2/3]" + C.X)
+    password = getpass.getpass(C.BC + "└──╼ " + C.BW + "Enter Password: " + C.X)
+    while len(password) < 4:
+        print(C.BR + "✗ Password must be at least 4 characters!" + C.X)
+        password = getpass.getpass(C.BC + "└──╼ " + C.BW + "Enter Password: " + C.X)
+    
+    confirm = getpass.getpass(C.BC + "└──╼ " + C.BW + "Confirm Password: " + C.X)
+    while password != confirm:
+        print(C.BR + "✗ Passwords don't match!" + C.X)
+        confirm = getpass.getpass(C.BC + "└──╼ " + C.BW + "Confirm Password: " + C.X)
+    
+    # Ask nickname
+    print()
+    print(C.BY + "┌─[SETUP: STEP 3/3]" + C.X)
+    nickname = input(C.BC + "└──╼ " + C.BW + "Enter Nickname: " + C.X).strip()
+    while not nickname:
+        nickname = input(C.BR + "✗ Nickname cannot be empty!\n" + C.BC + "└──╼ " + C.BW + "Enter Nickname: " + C.X).strip()
+    
+    # Show summary
+    clear()
+    print(C.BG + "═" * 60 + C.X)
+    print(C.BY + "      📋 ACCOUNT SUMMARY - PLEASE REVIEW" + C.X)
+    print(C.BG + "═" * 60 + C.X)
+    print()
+    print(f"  {C.BC}Username :{C.X} {C.BW}{username}{C.X}")
+    print(f"  {C.BC}Password :{C.X} {C.BW}{'•' * len(password)}{C.X}")
+    print(f"  {C.BC}Nickname :{C.X} {C.BW}{nickname}{C.X}")
+    print()
+    print(C.BG + "═" * 60 + C.X)
+    print()
+    print(C.BR + "⚠  DISCLAIMER:" + C.X)
+    print(C.BY + "  • Your password is encrypted and stored locally." + C.X)
+    print(C.BY + "  • If you FORGET your password, you CANNOT login again." + C.X)
+    print(C.BY + "  • You will need to CLEAR DATA and reinstall the system." + C.X)
+    print(C.BY + "  • There is NO password recovery option." + C.X)
+    print()
+    print(C.BG + "═" * 60 + C.X)
+    
+    choice = input(C.BY + "\n💾 Save this account? (Y/N): " + C.X).strip().upper()
+    while choice not in ["Y", "N"]:
+        choice = input(C.BR + "✗ Invalid! Enter Y or N: " + C.X).strip().upper()
+    
+    if choice == "N":
+        print(C.BR + "\n✗ Installation cancelled!" + C.X)
+        sys.exit(0)
+    
+    # Save encrypted
+    salt = generate_salt()
+    pass_hash = hash_password(password, salt)
+    
+    vault_data = {
+        "username": username,
+        "nickname": nickname,
+        "password_hash": pass_hash,
+        "salt": salt,
+        "created": time.time()
+    }
+    
+    encrypted = encrypt_data(vault_data, password, salt)
+    with open(VAULT_FILE, 'w') as f:
+        f.write(encrypted)
+    
+    # Save config (non-sensitive)
+    config = {
+        "username": username,
+        "nickname": nickname,
+        "installed": time.time()
+    }
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config, f)
+    
+    # Save salt separately for login verification
+    with open(INSTALL_DIR / "salt.key", 'w') as f:
+        f.write(salt)
+    
+    os.chmod(VAULT_FILE, 0o600)
+    os.chmod(INSTALL_DIR / "salt.key", 0o600)
+    
+    print(C.BG + "\n[✓] Account saved securely!" + C.X)
+    time.sleep(0.5)
+    
+    # Copy sound files
+    print(C.BC + "\n[*] Installing sound files..." + C.X)
+    script_dir = Path(__file__).parent
+    sound_src = script_dir / "sound"
+    if sound_src.exists():
+        for f in sound_src.glob("*.mp3"):
+            shutil.copy2(f, SOUND_DIR / f.name)
+        print(C.BG + f"[✓] {len(list(SOUND_DIR.glob('*.mp3')))} sound files installed" + C.X)
+    else:
+        print(C.BR + "[!] sound/ folder not found! Sound effects disabled." + C.X)
+    
+    # Copy login and shell scripts
+    shutil.copy2(Path(__file__).parent / "login.py", INSTALL_DIR / "login.py")
+    shutil.copy2(Path(__file__).parent / "shell.py", INSTALL_DIR / "shell.py")
+    
+    # Setup bashrc / zshrc
+    print(C.BC + "\n[*] Configuring auto-login on Termux startup..." + C.X)
+    
+    autostart = f'''
+# ====== NEXXON HACKER SECURE LOGIN ======
+if [ -f "{INSTALL_DIR}/login.py" ]; then
+    python "{INSTALL_DIR}/login.py"
+fi
+# =========================================
+'''
+    
+    # Remove old entries first
+    for rc in [BASHRC, ZSH]:
+        if rc.exists():
+            with open(rc, 'r') as f:
+                content = f.read()
+            # Remove old block
+            if "# ====== NEXXON HACKER SECURE LOGIN ======" in content:
+                start = content.find("# ====== NEXXON HACKER SECURE LOGIN ======")
+                end = content.find("# =========================================")
+                if end != -1:
+                    content = content[:start] + content[end + len("# ========================================="):]
+                    with open(rc, 'w') as f:
+                        f.write(content)
+    
+    # Add to bashrc
+    with open(BASHRC, 'a') as f:
+        f.write(autostart)
+    print(C.BG + "[✓] Added to .bashrc" + C.X)
+    
+    if ZSH.exists():
+        with open(ZSH, 'a') as f:
+            f.write(autostart)
+        print(C.BG + "[✓] Added to .zshrc" + C.X)
+    
+    # Install mpv if missing
+    print(C.BC + "\n[*] Checking audio support..." + C.X)
+    try:
+        subprocess.run(["mpv", "--version"], capture_output=True, check=True)
+        print(C.BG + "[✓] mpv already installed" + C.X)
+    except:
+        print(C.BY + "[*] Installing mpv for sound effects..." + C.X)
+        try:
+            subprocess.run(["pkg", "install", "mpv", "-y"], capture_output=True)
+            print(C.BG + "[✓] mpv installed" + C.X)
+        except:
+            print(C.BR + "[!] Could not install mpv. Install manually: pkg install mpv" + C.X)
+    
+    # Done
+    clear()
+    print(C.BC + KALI_LOGO + C.X)
+    print(C.BG + "═" * 60 + C.X)
+    print(C.BY + "      ✅ INSTALLATION COMPLETE! ✅" + C.X)
+    print(C.BG + "═" * 60 + C.X)
+    print()
+    print(C.BG + "  Welcome to Nexxon Hacker Secure Login System!" + C.X)
+    print()
+    print(C.BY + "  📌 IMPORTANT:" + C.X)
+    print(C.BC + "  • CLOSE and REOPEN Termux to activate login" + C.X)
+    print(C.BC + "  • OR run: source ~/.bashrc" + C.X)
+    print()
+    print(C.BR + "  ⚠  REMEMBER: If you forget your password," + C.X)
+    print(C.BR + "     you CANNOT login. Clear data to reset." + C.X)
+    print()
+    print(C.BG + "═" * 60 + C.X)
+    print(C.BM + "\n  🔥 Nexxon Hacker - Stay Secure! 🔥\n" + C.X)
+
+def uninstall():
+    """Remove the system"""
+    print(C.BR + "\n[!] Uninstalling Nexxon Secure Login..." + C.X)
+    if INSTALL_DIR.exists():
+        shutil.rmtree(INSTALL_DIR)
+        print(C.BG + "[✓] Removed vault directory" + C.X)
+    
+    for rc in [BASHRC, ZSH]:
+        if rc.exists():
+            with open(rc, 'r') as f:
+                content = f.read()
+            if "# ====== NEXXON HACKER SECURE LOGIN ======" in content:
+                start = content.find("# ====== NEXXON HACKER SECURE LOGIN ======")
+                end = content.find("# =========================================")
+                if end != -1:
+                    content = content[:start] + content[end + len("# ========================================="):]
+                    with open(rc, 'w') as f:
+                        f.write(content)
+    print(C.BG + "[✓] Removed auto-login entries" + C.X)
+    print(C.BY + "\n[!] Uninstall complete. Restart Termux.\n" + C.X)
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "uninstall":
+        uninstall()
+    else:
+        if VAULT_FILE.exists():
+            print(C.BY + "[!] Account already exists!" + C.X)
+            choice = input(C.BY + "Reinstall and overwrite? (Y/N): " + C.X).strip().upper()
+            if choice == "Y":
+                if INSTALL_DIR.exists():
+                    shutil.rmtree(INSTALL_DIR)
+                install()
+            else:
+                print(C.BC + "[*] Keeping existing account." + C.X)
+        else:
+            install()
+
+if __name__ == "__main__":
+    main()
