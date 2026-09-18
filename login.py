@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Nexxon Hacker - Login Interface (Kali Linux logo only)"""
+"""Nexxon Hacker - Login Interface
+Unlimited attempts + random sound on success
+Sound files: sound1.mp3, sound2.mp3, sound3.mp3
+"""
 
 import os
 import sys
@@ -19,6 +22,9 @@ VAULT_FILE = INSTALL_DIR / "vault.enc"
 CONFIG_FILE = INSTALL_DIR / "config.json"
 SOUND_DIR = INSTALL_DIR / "sound"
 SALT_FILE = INSTALL_DIR / "salt.key"
+
+# Available sound files (random pick on successful login)
+SOUND_FILES = ["sound1.mp3", "sound2.mp3", "sound3.mp3"]
 
 # ============ KALI LINUX ASCII LOGO ============
 KALI_LOGO = r"""
@@ -103,29 +109,90 @@ def decrypt_data(encrypted_str, password, salt):
         return None
 
 
+# ============ SOUND PLAYER (FIXED) ============
 def play_sound(name):
+    """Play a sound file from SOUND_DIR with multiple fallback players"""
     path = SOUND_DIR / name
+
     if not path.exists():
-        return
-    try:
-        subprocess.Popen(
-            ["mpv", "--no-video", "--really-quiet", str(path)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-    except FileNotFoundError:
+        # Try other common locations
+        alt_paths = [
+            HOME / name,
+            HOME / "Nexxon-Login" / "sound" / name,
+            Path(__file__).parent / "sound" / name,
+            Path(__file__).parent / name,
+        ]
+        for p in alt_paths:
+            if p.exists():
+                path = p
+                break
+        else:
+            # No sound file found - silent fail
+            return False
+
+    # Try mpv first
+    if shutil.which("mpv"):
+        try:
+            subprocess.Popen(
+                ["mpv", "--no-video", "--really-quiet", str(path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            return True
+        except Exception:
+            pass
+
+    # Fallback: termux-media-player
+    if shutil.which("termux-media-player"):
         try:
             subprocess.Popen(
                 ["termux-media-player", "play", str(path)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
+            return True
         except Exception:
             pass
 
+    # Fallback: ffplay
+    if shutil.which("ffplay"):
+        try:
+            subprocess.Popen(
+                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            return True
+        except Exception:
+            pass
+
+    # Fallback: aplay (WAV only, but try anyway)
+    if shutil.which("aplay"):
+        try:
+            subprocess.Popen(
+                ["aplay", str(path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            return True
+        except Exception:
+            pass
+
+    return False
+
 
 def play_random_welcome():
-    play_sound(f"welcome{random.randint(1,5)}.mp3")
+    """Pick a random sound file and play it"""
+    if not SOUND_DIR.exists():
+        return
+    available = [f for f in SOUND_FILES if (SOUND_DIR / f).exists()]
+    if not available:
+        # Fallback: any mp3 in the folder
+        available = [p.name for p in SOUND_DIR.glob("*.mp3")]
+    if not available:
+        return
+    chosen = random.choice(available)
+    play_sound(chosen)
 
 
 def show_login_banner():
@@ -152,61 +219,82 @@ def login():
 
     show_login_banner()
 
-    try:
-        with open(CONFIG_FILE) as f:
-            config = json.load(f)
-        expected_user = config.get("username", "")
-    except Exception:
-        expected_user = ""
+    wrong_count = 0
 
-    attempts = 0
-    max_attempts = 3
-
-    while attempts < max_attempts:
+    while True:
         print(C.BY + "┌─[AUTHENTICATION REQUIRED]" + C.X)
-        username = input(C.BC + "├──╼ " + C.BW + "Username: " + C.X).strip()
-        password = getpass.getpass(C.BC + "└──╼ " + C.BW + "Password: " + C.X)
+
+        try:
+            username = input(C.BC + "├──╼ " + C.BW + "Username: " + C.X).strip()
+        except (KeyboardInterrupt, EOFError):
+            print(C.BR + "\n[!] Login cancelled." + C.X)
+            time.sleep(1)
+            show_login_banner()
+            continue
+
+        if not username:
+            print(C.BR + "  ✗ Username cannot be empty!" + C.X)
+            time.sleep(1)
+            show_login_banner()
+            continue
+
+        try:
+            password = getpass.getpass(C.BC + "└──╼ " + C.BW + "Password: " + C.X)
+        except (KeyboardInterrupt, EOFError):
+            print(C.BR + "\n[!] Login cancelled." + C.X)
+            time.sleep(1)
+            show_login_banner()
+            continue
+
+        if not password:
+            print(C.BR + "  ✗ Password cannot be empty!" + C.X)
+            time.sleep(1)
+            show_login_banner()
+            continue
 
         print(C.BC + "\n  [*] Verifying credentials..." + C.X)
         time.sleep(0.8)
 
+        # Load vault
         try:
             with open(SALT_FILE) as f:
                 salt = f.read().strip()
             with open(VAULT_FILE) as f:
                 encrypted = f.read().strip()
         except Exception:
-            print(C.BR + "[!] Vault corrupted!" + C.X)
+            print(C.BR + "[!] Vault corrupted! Run installer again." + C.X)
             sys.exit(1)
 
         vault_data = decrypt_data(encrypted, password, salt)
 
+        # Verify
         if vault_data and vault_data.get("username") == username:
             pass_hash = vault_data.get("password_hash")
             if hash_password(password, salt) == pass_hash:
+                # ========== SUCCESS ==========
                 clear()
                 print(C.BG + "\n  [✓] ACCESS GRANTED\n" + C.X)
-                time.sleep(0.4)
+                time.sleep(0.3)
 
+                # Play random welcome sound BEFORE animation
+                play_random_welcome()
+
+                # Green/colorful binary rain animation
                 binary_rain(duration=3, colors=[C.G, C.BR, C.BY, C.BB, C.BC, C.BM])
 
-                play_random_welcome()
-                time.sleep(1.5)
+                # Wait a bit so the sound gets time to finish
+                time.sleep(2)
 
+                # Launch shell
                 os.execv(sys.executable, [sys.executable, str(INSTALL_DIR / "shell.py")])
                 return
 
-        attempts += 1
-        remaining = max_attempts - attempts
-        if remaining > 0:
-            print(C.BR + f"\n  ✗ ACCESS DENIED! {remaining} attempt(s) remaining\n" + C.X)
-            time.sleep(1)
-            show_login_banner()
-        else:
-            print(C.BR + "\n  ⛔ TOO MANY FAILED ATTEMPTS! LOCKED!\n" + C.X)
-            play_sound("welcome1.mp3")
-            time.sleep(2)
-            sys.exit(1)
+        # ========== FAILED ==========
+        wrong_count += 1
+        print(C.BR + "\n  ✗ ACCESS DENIED! Wrong username or password." + C.X)
+        print(C.BY + f"  ↻ Attempts: {wrong_count}  (Unlimited - try again)\n" + C.X)
+        time.sleep(1.2)
+        show_login_banner()
 
 
 if __name__ == "__main__":
